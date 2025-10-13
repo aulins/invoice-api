@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Invoice {{ number }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    .header { display:flex; justify-content: space-between; align-items: center; }
+    .box { border:1px solid #ddd; padding:12px; border-radius:8px; }
+    table { width:100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border-bottom:1px solid #eee; padding:8px; text-align:left; }
+    th { background:#fafafa; }
+    .right { text-align:right; }
+    .totals td { border:none; }
+    .badge { padding:4px 8px; border-radius:6px; background:#eef; display:inline-block; }
+    .muted { color:#666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h2>INVOICE</h2>
+      <div class="muted">No: {{ number }}</div>
+    </div>
+    <div class="badge">{{ status|upper }}</div>
+  </div>
+
+  <div class="box" style="margin-top:16px">
+    <strong>Bill To</strong>
+    <div>{{ payload.customer.name }}</div>
+    {% if payload.customer.address %}<div>{{ payload.customer.address }}</div>{% endif %}
+    {% if payload.customer.phone %}<div>Telp: {{ payload.customer.phone }}</div>{% endif %}
+    {% if payload.customer.email %}<div>Email: {{ payload.customer.email }}</div>{% endif %}
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th class="right">Qty</th>
+        <th class="right">Harga</th>
+        <th class="right">Diskon</th>
+        <th class="right">Pajak</th>
+        <th class="right">Subtotal</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for i in payload.items %}
+        {% set base = i.qty * i.unit_price - i.discount %}
+        {% if i.is_tax_inclusive %}
+          {% set tax = base - (base / (1 + i.tax_rate)) %}
+        {% else %}
+          {% set tax = base * i.tax_rate %}
+        {% endif %}
+        {% set line_total = base + (0 if i.is_tax_inclusive else tax) %}
+        <tr>
+          <td>{{ i.name }}</td>
+          <td class="right">{{ i.qty }}</td>
+          <td class="right">{{ i.unit_price | int | rupiah }}</td>
+          <td class="right">{{ i.discount | int | rupiah }}</td>
+          <td class="right">{{ tax | int | rupiah }}</td>
+          <td class="right">{{ line_total | int | rupiah }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <table class="totals" style="margin-top:12px">
+    <tr><td class="right" style="width:80%">Subtotal:</td><td class="right">{{ totals.subtotal | rupiah }}</td></tr>
+    <tr><td class="right">Pajak:</td><td class="right">{{ totals.tax_total | rupiah }}</td></tr>
+    <tr><td class="right">Pengiriman/Service/Pembulatan:</td><td class="right">
+      {{ (payload.charges.shipping + payload.charges.service + payload.charges.rounding) | int | rupiah }}
+    </td></tr>
+    <tr><td class="right"><strong>Total:</strong></td><td class="right"><strong>{{ totals.grand_total | rupiah }}</strong></td></tr>
+  </table>
+
+  {% if payload.notes %}
+    <p class="muted" style="margin-top:16px">Catatan: {{ payload.notes }}</p>
+  {% endif %}
+</body>
+</html>

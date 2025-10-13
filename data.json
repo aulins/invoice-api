@@ -1,0 +1,5 @@
+{
+    "customer": { "name": "Toko X" },
+    "items": [{ "name": "Produk A", "qty": 2, "unit_price": 10000, "tax_rate": 0.11 }],
+    "issue_date": "2025-10-13"
+}
