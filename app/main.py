@@ -14,10 +14,16 @@ app = FastAPI(title="UMKM Invoice API (HTML)", version="1.0.0")
 DB: Dict[str, dict] = {}
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
-env = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=select_autoescape(['html']))
+env = Environment(
+    loader=FileSystemLoader(TEMPLATES_DIR),
+    autoescape=select_autoescape(["html"])
+    )
 
 def rupiah(n: float) -> str:
-    return f"Rp {int(n):,}".replace(",", ".")
+    try:
+        return f"Rp {int(n):,}".replace(",", ".")
+    except Exception:
+        return "Rp 0"
 env.filters["rupiah"] = rupiah
 
 def calc_totals(items: list[Item], charges: Charges, discount_total: float):
@@ -64,6 +70,43 @@ async def invoice_html(inv_id: str):
     if inv_id not in DB:
         raise HTTPException(404, "Invoice not found")
     data = DB[inv_id]
-    template = env.get_template("invoice.html")
-    html = template.render(number=data["number"], totals=data["totals"], payload=data["payload"], status=data["status"])
-    return HTMLResponse(content=html, media_type="text/html")
+    try:
+        template = env.get_template("invoice.html")  # file kamu sudah benar
+        html = template.render(
+            number=data["number"],
+            totals=data["totals"],
+            payload=data["payload"],
+            status=data["status"]
+        )
+        return HTMLResponse(content=html, media_type="text/html")
+    except TemplateNotFound:
+        # fallback sederhana agar tetap tampil
+        p = data["payload"]
+        items_html = "".join(
+            f"<li>{i.get('name')} — {i.get('qty')} × {i.get('unit_price')}</li>"
+            for i in p.get("items", [])
+        )
+        html = f"""<!doctype html><html><body>
+        <h2>INVOICE (fallback)</h2>
+        <div>No: {data['number']}</div>
+        <div><b>Bill To:</b> {p.get('customer',{}).get('name','')}</div>
+        <ul>{items_html}</ul>
+        <p><b>Total:</b> {data['totals']['grand_total']}</p>
+        </body></html>"""
+        return HTMLResponse(html)
+    except Exception as e:
+        # tampilkan info debug di browser
+        traceback.print_exc()
+        return HTMLResponse(
+            status_code=500,
+            content=f"<pre>Render error:\n{e}\n\nRecord:\n{json.dumps(data, indent=2)}</pre>"
+        )
+
+
+@app.get("/debug/templates", response_class=PlainTextResponse)
+async def debug_templates():
+    try:
+        files = os.listdir(TEMPLATES_DIR)
+        return "Templates dir: " + TEMPLATES_DIR + "\n" + "\n".join(files)
+    except Exception as e:
+        return "Error reading templates dir: " + str(e)
