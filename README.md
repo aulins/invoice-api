@@ -29,7 +29,7 @@ Microservice sederhana untuk **menerbitkan dan menampilkan invoice komersial** b
 
 -   Python 3.10+
 -   Windows Command Prompt (CMD) / macOS / Linux terminal.
--   pip tersedia.
+-   `pip` tersedia.
 
 ## Menjalankan (Quick Start)
 
@@ -61,8 +61,8 @@ export API_KEY=demo_merchant_key
 uvicorn app.main:app --reload
 ```
 
--   Health check: **http://127.0.0.1:8000/healthz** → **{"ok": true}**
--   Swagger/OpenAPI: **http://127.0.0.1:8000/docs**
+-   Health check: `http://127.0.0.1:8000/healthz` → `{"ok": true}`
+-   Swagger/OpenAPI: `http://127.0.0.1:8000/docs`
 
 ## Membuat invoice pertama
 
@@ -96,7 +96,7 @@ curl.exe -H "X-API-Key: demo_merchant_key" -H "Content-Type: application/json" -
 curl -H "X-API-Key: demo_merchant_key" -H "Content-Type: application/json" --data @data.json http://127.0.0.1:8000/v1/invoices
 ```
 
-Salin nilai id dari respons `(mis. inv_abc12345)`.
+Salin nilai `id` dari respons `(mis. inv_abc12345)`.
 
 ### Tampilkan HTML & cetak PDF
 
@@ -117,13 +117,13 @@ xdg-open invoice.html  # Linux
 ## API endpoints
 
 Method > Path > Deskripsi
-GET /healthz : Health check –
-POST /v1/invoices : Buat invoice baru
-GET /v1/invoices : Daftar invoice
-GET /v1/invoices/{id} : Detail invoice
-GET /v1/invoices/{id}/html : HTML invoice siap cetak
+GET `/healthz` : Health check –
+POST `/v1/invoices` : Buat invoice baru
+GET `/v1/invoices` : Daftar invoice
+GET `/v1/invoices/{id}` : Detail invoice
+GET `/v1/invoices/{id}/html` : HTML invoice siap cetak
 
-### Contoh request – **POST /v1/invoices**
+### Contoh request – `POST /v1/invoices`
 
 ```bash
 {
@@ -153,9 +153,9 @@ Contoh respons
 
 ## Konfigurasi
 
--   **API_KEY** (env var): nilai yang wajib sama dengan header **X-API-Key** pada setiap request ber-privilege.
--   Windows CMD (sesi saat ini): **set API_KEY=demo_merchant_key**
--   macOS/Linux: **export API_KEY=demo_merchant_key**
+-   `API_KEY` (env var): nilai yang wajib sama dengan header `X-API-Key` pada setiap request ber-privilege.
+-   Windows CMD (sesi saat ini): `set API_KEY=demo_merchant_key`
+-   macOS/Linux: `export API_KEY=demo_merchant_key`
 
 ## Batasan saat ini
 
@@ -185,7 +185,7 @@ requirements.txt
 
 ## Keamanan & privasi
 
--   Jangan menaruh rahasia di URL (gunakan header **X-API-Key**).
+-   Jangan menaruh rahasia di URL (gunakan header `X-API-Key`).
 -   Batasi data pelanggan yang dikirim (minim yang diperlukan).
 -   Gunakan HTTPS saat dipublikasikan
 
