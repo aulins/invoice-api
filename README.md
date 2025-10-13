@@ -96,7 +96,7 @@ curl.exe -H "X-API-Key: demo_merchant_key" -H "Content-Type: application/json" -
 curl -H "X-API-Key: demo_merchant_key" -H "Content-Type: application/json" --data @data.json http://127.0.0.1:8000/v1/invoices
 ```
 
-Salin nilai id dari respons **(mis. inv_abc12345)**.
+Salin nilai id dari respons `(mis. inv_abc12345)`.
 
 ### Tampilkan HTML & cetak PDF
 
