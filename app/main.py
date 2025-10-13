@@ -3,23 +3,15 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from typing import Dict
 from uuid import uuid4
 from datetime import date
-from jinja2 import Environment, FileSystemLoader, select_autoescape, TemplateNotFound
-import os, json, traceback
+import os, json
 
 from .auth import require_api_key
 from .models import CreateInvoice, Item, Charges
 
-app = FastAPI(title="UMKM Invoice API (HTML)", version="1.0.0")
+app = FastAPI(title="UMKM Invoice API (SAFE MODE)", version="1.0.0")
 
 # --- In-memory store ---
 DB: Dict[str, dict] = {}
-
-# --- Templating (Jinja2) ---
-TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
-env = Environment(
-    loader=FileSystemLoader(TEMPLATES_DIR),
-    autoescape=select_autoescape(["html"])
-)
 
 def rupiah(n: float) -> str:
     try:
@@ -27,9 +19,6 @@ def rupiah(n: float) -> str:
     except Exception:
         return "Rp 0"
 
-env.filters["rupiah"] = rupiah
-
-# --- Helpers ---
 def calc_totals(items: list[Item], charges: Charges, discount_total: float):
     subtotal = sum(i.qty * i.unit_price - i.discount for i in items)
     tax_total = 0.0
@@ -46,19 +35,14 @@ def calc_totals(items: list[Item], charges: Charges, discount_total: float):
 def next_number():
     return f"INV/{date.today().year}/{date.today().month:02d}/{len(DB)+1:04d}"
 
-# --- Health ---
+# --- Health & debug ---
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
 
-# --- Debug templates (opsional) ---
-@app.get("/debug/templates", response_class=PlainTextResponse)
-async def debug_templates():
-    try:
-        files = os.listdir(TEMPLATES_DIR)
-        return "Templates dir: " + TEMPLATES_DIR + "\n" + "\n".join(files)
-    except Exception as e:
-        return "Error reading templates dir: " + str(e)
+@app.get("/debug/info", response_class=PlainTextResponse)
+async def debug_info():
+    return "OK: SAFE MODE (no Jinja template)."
 
 # --- Invoices API ---
 @app.post("/v1/invoices", dependencies=[Depends(require_api_key)])
@@ -86,39 +70,77 @@ async def get_invoice(inv_id: str):
         raise HTTPException(404, "Invoice not found")
     return DB[inv_id]
 
+# --- HTML tanpa Jinja (aman) ---
 @app.get("/v1/invoices/{inv_id}/html", response_class=HTMLResponse, dependencies=[Depends(require_api_key)])
 async def invoice_html(inv_id: str):
     if inv_id not in DB:
         raise HTTPException(404, "Invoice not found")
-    data = DB[inv_id]
-    try:
-        template = env.get_template("invoice.html")
-        html = template.render(
-            number=data["number"],
-            totals=data["totals"],
-            payload=data["payload"],
-            status=data["status"]
+    d = DB[inv_id]
+    p = d["payload"]
+    rows = ""
+    for i in p.get("items", []):
+        base = i.get("qty", 0) * i.get("unit_price", 0) - i.get("discount", 0)
+        if i.get("is_tax_inclusive"):
+            tax = base - (base / (1 + i.get("tax_rate", 0)))
+            line_total = base
+        else:
+            tax = base * i.get("tax_rate", 0)
+            line_total = base + tax
+        rows += (
+            "<tr>"
+            f"<td>{i.get('name','')}</td>"
+            f"<td style='text-align:right'>{i.get('qty',0)}</td>"
+            f"<td style='text-align:right'>{rupiah(i.get('unit_price',0))}</td>"
+            f"<td style='text-align:right'>{rupiah(i.get('discount',0))}</td>"
+            f"<td style='text-align:right'>{rupiah(int(tax))}</td>"
+            f"<td style='text-align:right'>{rupiah(int(line_total))}</td>"
+            "</tr>"
         )
-        return HTMLResponse(content=html, media_type="text/html")
-    except TemplateNotFound:
-        # Fallback sederhana agar tetap tampil
-        p = data["payload"]
-        items_html = "".join(
-            f"<li>{i.get('name')} — {i.get('qty')} × {i.get('unit_price')}</li>"
-            for i in p.get("items", [])
-        )
-        html = f"""<!doctype html><html><body>
-        <h2>INVOICE (fallback)</h2>
-        <div>No: {data['number']}</div>
-        <div><b>Bill To:</b> {p.get('customer',{}).get('name','')}</div>
-        <ul>{items_html}</ul>
-        <p><b>Total:</b> {data['totals']['grand_total']}</p>
-        </body></html>"""
-        return HTMLResponse(html)
-    except Exception as e:
-        # Tampilkan info debug di browser dan console
-        traceback.print_exc()
-        return HTMLResponse(
-            status_code=500,
-            content=f"<pre>Render error:\n{e}\n\nRecord:\n{json.dumps(data, indent=2)}</pre>"
-        )
+
+    html = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{d['number']}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 24px; }}
+    .header {{ display:flex; justify-content: space-between; align-items: center; }}
+    .box {{ border:1px solid #ddd; padding:12px; border-radius:8px; }}
+    table {{ width:100%; border-collapse: collapse; margin-top: 12px; }}
+    th, td {{ border-bottom:1px solid #eee; padding:8px; text-align:left; }}
+    th {{ background:#fafafa; }}
+    .right {{ text-align:right; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h2>INVOICE</h2>
+      <div>No: {d['number']}</div>
+    </div>
+    <div style="padding:4px 8px;border-radius:6px;background:#eef;display:inline-block;">{d['status'].upper()}</div>
+  </div>
+
+  <div class="box" style="margin-top:16px">
+    <strong>Bill To</strong>
+    <div>{p.get('customer',{}).get('name','')}</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th><th class="right">Qty</th><th class="right">Harga</th>
+        <th class="right">Diskon</th><th class="right">Pajak</th><th class="right">Subtotal</th>
+      </tr>
+    </thead>
+    <tbody>{rows}</tbody>
+  </table>
+
+  <table style="margin-top:12px; width:100%">
+    <tr><td class="right" style="width:80%">Subtotal:</td><td class="right">{rupiah(d['totals']['subtotal'])}</td></tr>
+    <tr><td class="right">Pajak:</td><td class="right">{rupiah(d['totals']['tax_total'])}</td></tr>
+    <tr><td class="right"><strong>Total:</strong></td><td class="right"><strong>{rupiah(d['totals']['grand_total'])}</strong></td></tr>
+  </table>
+</body>
+</html>"""
+    return HTMLResponse(content=html, media_type="text/html")
