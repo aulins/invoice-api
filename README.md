@@ -19,3 +19,29 @@ Microservice sederhana untuk **menerbitkan dan menampilkan invoice komersial** b
 -   **Penyimpanan sementara (in-memory)**: cocok untuk belajar/MVP.
 
 ---
+
+## Arsitektur singkat
+
+> Client → FastAPI (app/main.py) → In-memory store
+> ↳ HTML renderer (server-side)
+
+## Prasyarat
+
+-   Python 3.10+
+-   Windows Command Prompt (CMD) / macOS / Linux terminal.
+-   pip tersedia.
+
+## Menjalankan (Quick Start)
+
+### 1) Instalasi
+
+```bash
+# clone repo ini, lalu:
+python -m venv .venv
+# Windows CMD
+.\.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
