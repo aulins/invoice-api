@@ -1,27 +1,21 @@
-# UMKM Invoice API — Starter + HTML Invoice
+# UMKM Invoice API
 
-API-only MVP dengan endpoint HTML invoice siap cetak (Ctrl/Cmd+P -> Save as PDF).
+Microservice sederhana untuk **menerbitkan dan menampilkan invoice komersial** bagi UMKM. Proyek ini dirancang sebagai fondasi API yang ringan: mudah dijalankan, jelas kontraknya, dan siap dikembangkan menjadi layanan berbayar.
 
-## Jalankan
-```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# Mac/Linux
-source .venv/bin/activate
+> **Catatan hukum**  
+> Proyek ini menerbitkan **invoice/kwitansi komersial** (nota/tagihan), **bukan** e-Faktur pajak. Jika Pelaku Usaha adalah PKP dan butuh e-Faktur, penerbitannya tetap melalui kanal resmi DJP/PJAP. API ini hanya dapat memuat **nomor referensi** e-Faktur pada invoice jika diperlukan.
 
-pip install -r requirements.txt
-set API_KEY=demo_merchant_key   # Windows (PowerShell: $env:API_KEY='demo_merchant_key')
-export API_KEY=demo_merchant_key # Mac/Linux
+---
 
-uvicorn app.main:app --reload
-```
-Buka docs: http://127.0.0.1:8000/docs
+## Fitur utama
 
-## Coba cepat
-1) Create invoice:
-```bash
-curl -X POST http://127.0.0.1:8000/v1/invoices   -H "X-API-Key: demo_merchant_key" -H "Content-Type: application/json"   -d '{"customer":{"name":"Toko X"},"items":[{"name":"Produk A","qty":2,"unit_price":10000,"tax_rate":0.11}],"issue_date":"2025-10-13"}'
-```
-2) Render HTML:
-http://127.0.0.1:8000/v1/invoices/<id>/html
+-   **Create & read invoice**: item, kuantitas, harga, diskon, pajak per-item, biaya lain (shipping/service/rounding).
+-   **Perhitungan otomatis**: subtotal, pajak, total akhir; format IDR (Rp).
+-   **Penomoran**: `INV/YYYY/MM/SEQ`.
+-   **Render HTML**: server menghasilkan **HTML siap cetak** (Ctrl/Cmd + P → “Save as PDF”).
+    > Implementasi saat ini **tanpa template engine** untuk meminimalkan dependensi & error (SAFE MODE).
+-   **Auth sederhana**: header `X-API-Key`.
+-   **OpenAPI/Swagger**: dokumentasi otomatis di `/docs`.
+-   **Penyimpanan sementara (in-memory)**: cocok untuk belajar/MVP.
+
+---
