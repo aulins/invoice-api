@@ -1,17 +1,32 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import HTMLResponse, PlainTextResponse
-from typing import Dict
-from uuid import uuid4
-from datetime import date
-import os, json
+from sqlalchemy.orm import Session
+from datetime import date, datetime
+import os
 
-from .auth import require_api_key
+from .auth import require_api_key, get_current_merchant
 from .models import CreateInvoice, Item, Charges
+from .database import get_db, engine, Base
+from .db_models import Merchant, Invoice, APIKey, hash_key, gen_id
 
-app = FastAPI(title="UMKM Invoice API (SAFE MODE)", version="1.0.0")
+# Create tables (hanya untuk development, production pakai Alembic)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"Warning: Could not create tables: {e}")
 
-# --- In-memory store ---
-DB: Dict[str, dict] = {}
+app = FastAPI(
+    title="UMKM Invoice API",
+    version="2.0.0",
+    description="Multi-tenant invoice API with database"
+)
+
+# Feature flag: set USE_DATABASE=true di env untuk enable database mode
+USE_DATABASE = os.getenv("USE_DATABASE", "false").lower() == "true"
+
+# In-memory fallback (untuk testing tanpa database)
+DB = {}
+
 
 def rupiah(n: float) -> str:
     try:
@@ -19,7 +34,9 @@ def rupiah(n: float) -> str:
     except Exception:
         return "Rp 0"
 
+
 def calc_totals(items: list[Item], charges: Charges, discount_total: float):
+    """Perhitungan yang sama seperti sebelumnya"""
     subtotal = sum(i.qty * i.unit_price - i.discount for i in items)
     tax_total = 0.0
     for i in items:
@@ -30,54 +47,237 @@ def calc_totals(items: list[Item], charges: Charges, discount_total: float):
         else:
             tax_total += base * i.tax_rate
     grand = subtotal + tax_total + charges.shipping + charges.service + charges.rounding - discount_total
-    return {"subtotal": round(subtotal), "tax_total": round(tax_total), "grand_total": round(grand)}
+    return {
+        "subtotal": round(subtotal),
+        "tax_total": round(tax_total),
+        "grand_total": round(grand)
+    }
 
-def next_number():
+
+def next_number_legacy():
+    """Legacy numbering (in-memory)"""
     return f"INV/{date.today().year}/{date.today().month:02d}/{len(DB)+1:04d}"
 
-# --- Health & debug ---
+
+def next_number_db(merchant_id: str, db: Session):
+    """Database-based numbering (persistent per merchant)"""
+    today = date.today()
+    year, month = today.year, today.month
+    
+    # Count invoices untuk merchant ini di bulan ini
+    count = db.query(Invoice).filter(
+        Invoice.merchant_id == merchant_id,
+        Invoice.number.like(f"INV/{year}/{month:02d}/%")
+    ).count()
+    
+    seq = count + 1
+    return f"INV/{year}/{month:02d}/{seq:04d}"
+
+
+# ==================== HEALTH CHECK ====================
+
 @app.get("/healthz")
-async def healthz():
-    return {"ok": True}
+async def healthz(db: Session = Depends(get_db)):
+    """Health check"""
+    try:
+        if USE_DATABASE:
+            db.execute("SELECT 1")
+            db_status = "connected"
+        else:
+            db_status = "in-memory mode"
+        
+        return {
+            "ok": True,
+            "version": "2.0.0",
+            "database": db_status,
+            "mode": "database" if USE_DATABASE else "legacy"
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "database": "error",
+            "error": str(e)
+        }
+
 
 @app.get("/debug/info", response_class=PlainTextResponse)
 async def debug_info():
-    return "OK: SAFE MODE (no Jinja template)."
+    mode = "DATABASE" if USE_DATABASE else "LEGACY (in-memory)"
+    return f"OK: Running in {mode} mode"
 
-# --- Invoices API ---
-@app.post("/v1/invoices", dependencies=[Depends(require_api_key)])
-async def create_invoice(payload: CreateInvoice):
-    inv_id = f"inv_{uuid4().hex[:8]}"
-    number = next_number()
-    totals = calc_totals(payload.items, payload.charges, payload.discount_total)
-    record = {"id": inv_id, "number": number, "status": "issued", "payload": payload.model_dump(), "totals": totals}
-    DB[inv_id] = record
+
+# ==================== CREATE INVOICE ====================
+
+@app.post("/v1/invoices")
+async def create_invoice(
+    payload: CreateInvoice,
+    db: Session = Depends(get_db),
+    _auth: None = Depends(require_api_key)  # Legacy auth
+):
+    """
+    Create invoice - works in both legacy and database mode
+    """
+    
+    if USE_DATABASE:
+        # DATABASE MODE - Multi-tenant
+        # TODO: Ganti dengan get_current_merchant setelah setup merchant
+        merchant_id = "mrc_default"  # Placeholder
+        
+        # Check merchant exists
+        merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
+        if not merchant:
+            raise HTTPException(404, "Merchant not found. Run /admin/setup first.")
+        
+        # Check quota
+        if merchant.quota_used >= merchant.quota_limit:
+            raise HTTPException(
+                429,
+                f"Quota exceeded. Plan '{merchant.plan}' allows {merchant.quota_limit} invoices/month"
+            )
+        
+        # Generate invoice
+        inv_id = gen_id("inv")
+        number = next_number_db(merchant_id, db)
+        totals = calc_totals(payload.items, payload.charges, payload.discount_total)
+        
+        invoice = Invoice(
+            id=inv_id,
+            merchant_id=merchant_id,
+            number=number,
+            status="issued",
+            payload=payload.model_dump(),
+            subtotal=totals["subtotal"],
+            tax_total=totals["tax_total"],
+            grand_total=totals["grand_total"]
+        )
+        
+        db.add(invoice)
+        merchant.quota_used += 1
+        db.commit()
+        
+    else:
+        # LEGACY MODE - In-memory
+        inv_id = f"inv_{gen_id('tmp')}"
+        number = next_number_legacy()
+        totals = calc_totals(payload.items, payload.charges, payload.discount_total)
+        
+        invoice = {
+            "id": inv_id,
+            "number": number,
+            "status": "issued",
+            "payload": payload.model_dump(),
+            "totals": totals
+        }
+        DB[inv_id] = invoice
+    
     return {
         "id": inv_id,
         "number": number,
         "status": "issued",
         "totals": totals,
-        "links": {"self": f"/v1/invoices/{inv_id}", "html": f"/v1/invoices/{inv_id}/html"}
+        "links": {
+            "self": f"/v1/invoices/{inv_id}",
+            "html": f"/v1/invoices/{inv_id}/html"
+        }
     }
 
-@app.get("/v1/invoices", dependencies=[Depends(require_api_key)])
-async def list_invoices():
-    return list(DB.values())
 
-@app.get("/v1/invoices/{inv_id}", dependencies=[Depends(require_api_key)])
-async def get_invoice(inv_id: str):
-    if inv_id not in DB:
-        raise HTTPException(404, "Invoice not found")
-    return DB[inv_id]
+# ==================== LIST INVOICES ====================
 
-# --- HTML tanpa Jinja (aman) ---
-@app.get("/v1/invoices/{inv_id}/html", response_class=HTMLResponse, dependencies=[Depends(require_api_key)])
-async def invoice_html(inv_id: str):
-    if inv_id not in DB:
-        raise HTTPException(404, "Invoice not found")
-    d = DB[inv_id]
+@app.get("/v1/invoices")
+async def list_invoices(
+    db: Session = Depends(get_db),
+    _auth: None = Depends(require_api_key)
+):
+    """List invoices"""
+    
+    if USE_DATABASE:
+        merchant_id = "mrc_default"  # TODO: dari auth
+        invoices = db.query(Invoice).filter(
+            Invoice.merchant_id == merchant_id
+        ).order_by(Invoice.created_at.desc()).limit(50).all()
+        
+        return [
+            {
+                "id": inv.id,
+                "number": inv.number,
+                "status": inv.status,
+                "customer": inv.payload.get("customer", {}),
+                "grand_total": inv.grand_total,
+                "created_at": inv.created_at.isoformat()
+            }
+            for inv in invoices
+        ]
+    else:
+        return list(DB.values())
+
+
+# ==================== GET INVOICE ====================
+
+@app.get("/v1/invoices/{inv_id}")
+async def get_invoice(
+    inv_id: str,
+    db: Session = Depends(get_db),
+    _auth: None = Depends(require_api_key)
+):
+    """Get invoice detail"""
+    
+    if USE_DATABASE:
+        invoice = db.query(Invoice).filter(Invoice.id == inv_id).first()
+        if not invoice:
+            raise HTTPException(404, "Invoice not found")
+        
+        return {
+            "id": invoice.id,
+            "number": invoice.number,
+            "status": invoice.status,
+            "payload": invoice.payload,
+            "totals": {
+                "subtotal": invoice.subtotal,
+                "tax_total": invoice.tax_total,
+                "grand_total": invoice.grand_total
+            }
+        }
+    else:
+        if inv_id not in DB:
+            raise HTTPException(404, "Invoice not found")
+        return DB[inv_id]
+
+
+# ==================== HTML INVOICE ====================
+
+@app.get("/v1/invoices/{inv_id}/html", response_class=HTMLResponse)
+async def invoice_html(
+    inv_id: str,
+    db: Session = Depends(get_db),
+    _auth: None = Depends(require_api_key)
+):
+    """Render HTML - sama seperti sebelumnya"""
+    
+    if USE_DATABASE:
+        invoice = db.query(Invoice).filter(Invoice.id == inv_id).first()
+        if not invoice:
+            raise HTTPException(404, "Invoice not found")
+        
+        d = {
+            "id": invoice.id,
+            "number": invoice.number,
+            "status": invoice.status,
+            "payload": invoice.payload,
+            "totals": {
+                "subtotal": invoice.subtotal,
+                "tax_total": invoice.tax_total,
+                "grand_total": invoice.grand_total
+            }
+        }
+    else:
+        if inv_id not in DB:
+            raise HTTPException(404, "Invoice not found")
+        d = DB[inv_id]
+    
     p = d["payload"]
     rows = ""
+    
     for i in p.get("items", []):
         base = i.get("qty", 0) * i.get("unit_price", 0) - i.get("discount", 0)
         if i.get("is_tax_inclusive"):
@@ -86,6 +286,7 @@ async def invoice_html(inv_id: str):
         else:
             tax = base * i.get("tax_rate", 0)
             line_total = base + tax
+        
         rows += (
             "<tr>"
             f"<td>{i.get('name','')}</td>"
@@ -96,7 +297,7 @@ async def invoice_html(inv_id: str):
             f"<td style='text-align:right'>{rupiah(int(line_total))}</td>"
             "</tr>"
         )
-
+    
     html = f"""<!doctype html>
 <html>
 <head>
@@ -143,4 +344,54 @@ async def invoice_html(inv_id: str):
   </table>
 </body>
 </html>"""
+    
     return HTMLResponse(content=html, media_type="text/html")
+
+
+# ==================== ADMIN SETUP ====================
+
+@app.post("/admin/setup", include_in_schema=False)
+async def admin_setup(db: Session = Depends(get_db)):
+    """
+    Setup merchant & API key pertama kali (DEVELOPMENT ONLY)
+    Jalankan sekali saja setelah database ready
+    """
+    
+    # Check if merchant already exists
+    existing = db.query(Merchant).filter(Merchant.id == "mrc_default").first()
+    if existing:
+        return {"message": "Already setup", "merchant": existing.name}
+    
+    # Create default merchant
+    merchant = Merchant(
+        id="mrc_default",
+        name="Default Merchant",
+        email="demo@example.com",
+        plan="free",
+        quota_limit=10
+    )
+    db.add(merchant)
+    db.flush()
+    
+    # Create API key
+    api_key_value = f"inv_test_{os.urandom(12).hex()}"
+    key_hash_value = hash_key(api_key_value)
+    
+    api_key = APIKey(
+        merchant_id=merchant.id,
+        key_hash=key_hash_value,
+        key_prefix=api_key_value[:12],
+        name="Default API Key"
+    )
+    db.add(api_key)
+    
+    db.commit()
+    
+    return {
+        "message": "Setup complete!",
+        "merchant_id": merchant.id,
+        "merchant_name": merchant.name,
+        "api_key": api_key_value,
+        "note": "SAVE THIS API KEY - won't be shown again!",
+        "next_step": "Set USE_DATABASE=true in .env and restart server"
+    }
