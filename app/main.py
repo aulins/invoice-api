@@ -134,12 +134,15 @@ async def create_invoice(
         number = next_number_db(merchant.id, db)
         totals = calc_totals(payload.items, payload.charges, payload.discount_total)
         
+        payload_json = payload.model_dump(mode="json")
+
+        
         invoice = Invoice(
             id=inv_id,
             merchant_id=merchant.id,
             number=number,
             status="issued",
-            payload=payload.model_dump(),
+            payload=payload_json,
             subtotal=totals["subtotal"],
             tax_total=totals["tax_total"],
             grand_total=totals["grand_total"]
@@ -159,7 +162,7 @@ async def create_invoice(
             "id": inv_id,
             "number": number,
             "status": "issued",
-            "payload": payload.model_dump(),
+            "payload": payload.model_dump(mode="json"),
             "totals": totals
         }
         DB[inv_id] = invoice
