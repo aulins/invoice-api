@@ -81,7 +81,8 @@ async def healthz(db: Session = Depends(get_db)):
     """Health check"""
     try:
         if USE_DATABASE:
-            db.execute("SELECT 1")
+            from sqlalchemy import text
+            db.execute(text("SELECT 1"))
             db_status = "connected"
         else:
             db_status = "in-memory mode"
@@ -111,22 +112,15 @@ async def debug_info():
 @app.post("/v1/invoices")
 async def create_invoice(
     payload: CreateInvoice,
-    db: Session = Depends(get_db),
-    _auth: None = Depends(require_api_key)  # Legacy auth
+    merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db)
 ):
     """
     Create invoice - works in both legacy and database mode
     """
     
     if USE_DATABASE:
-        # DATABASE MODE - Multi-tenant
-        # TODO: Ganti dengan get_current_merchant setelah setup merchant
-        merchant_id = "mrc_default"  # Placeholder
-        
-        # Check merchant exists
-        merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
-        if not merchant:
-            raise HTTPException(404, "Merchant not found. Run /admin/setup first.")
+        # DATABASE MODE - Multi-tenant (merchant sudah dari auth)
         
         # Check quota
         if merchant.quota_used >= merchant.quota_limit:
@@ -137,12 +131,12 @@ async def create_invoice(
         
         # Generate invoice
         inv_id = gen_id("inv")
-        number = next_number_db(merchant_id, db)
+        number = next_number_db(merchant.id, db)
         totals = calc_totals(payload.items, payload.charges, payload.discount_total)
         
         invoice = Invoice(
             id=inv_id,
-            merchant_id=merchant_id,
+            merchant_id=merchant.id,
             number=number,
             status="issued",
             payload=payload.model_dump(),
@@ -186,15 +180,14 @@ async def create_invoice(
 
 @app.get("/v1/invoices")
 async def list_invoices(
-    db: Session = Depends(get_db),
-    _auth: None = Depends(require_api_key)
+    merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db)
 ):
     """List invoices"""
     
     if USE_DATABASE:
-        merchant_id = "mrc_default"  # TODO: dari auth
         invoices = db.query(Invoice).filter(
-            Invoice.merchant_id == merchant_id
+            Invoice.merchant_id == merchant.id
         ).order_by(Invoice.created_at.desc()).limit(50).all()
         
         return [
@@ -217,13 +210,16 @@ async def list_invoices(
 @app.get("/v1/invoices/{inv_id}")
 async def get_invoice(
     inv_id: str,
-    db: Session = Depends(get_db),
-    _auth: None = Depends(require_api_key)
+    merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db)
 ):
     """Get invoice detail"""
     
     if USE_DATABASE:
-        invoice = db.query(Invoice).filter(Invoice.id == inv_id).first()
+        invoice = db.query(Invoice).filter(
+            Invoice.id == inv_id,
+            Invoice.merchant_id == merchant.id  # Data isolation!
+        ).first()
         if not invoice:
             raise HTTPException(404, "Invoice not found")
         
@@ -249,13 +245,16 @@ async def get_invoice(
 @app.get("/v1/invoices/{inv_id}/html", response_class=HTMLResponse)
 async def invoice_html(
     inv_id: str,
-    db: Session = Depends(get_db),
-    _auth: None = Depends(require_api_key)
+    merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db)
 ):
     """Render HTML - sama seperti sebelumnya"""
     
     if USE_DATABASE:
-        invoice = db.query(Invoice).filter(Invoice.id == inv_id).first()
+        invoice = db.query(Invoice).filter(
+            Invoice.id == inv_id,
+            Invoice.merchant_id == merchant.id  # Data isolation!
+        ).first()
         if not invoice:
             raise HTTPException(404, "Invoice not found")
         
