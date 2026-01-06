@@ -200,4 +200,3 @@ Issue & PR dipersilakan. Mohon sertakan langkah reproduksi yang jelas.
 ## Test
 
 test data persistence
-test lagi ya

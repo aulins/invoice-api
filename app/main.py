@@ -81,8 +81,7 @@ async def healthz(db: Session = Depends(get_db)):
     """Health check"""
     try:
         if USE_DATABASE:
-            from sqlalchemy import text
-            db.execute(text("SELECT 1"))
+            db.execute("SELECT 1")
             db_status = "connected"
         else:
             db_status = "in-memory mode"
@@ -134,15 +133,12 @@ async def create_invoice(
         number = next_number_db(merchant.id, db)
         totals = calc_totals(payload.items, payload.charges, payload.discount_total)
         
-        payload_json = payload.model_dump(mode="json")
-
-        
         invoice = Invoice(
             id=inv_id,
             merchant_id=merchant.id,
             number=number,
             status="issued",
-            payload=payload_json,
+            payload=payload.model_dump(),
             subtotal=totals["subtotal"],
             tax_total=totals["tax_total"],
             grand_total=totals["grand_total"]
@@ -162,7 +158,7 @@ async def create_invoice(
             "id": inv_id,
             "number": number,
             "status": "issued",
-            "payload": payload.model_dump(mode="json"),
+            "payload": payload.model_dump(),
             "totals": totals
         }
         DB[inv_id] = invoice
