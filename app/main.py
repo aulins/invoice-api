@@ -374,8 +374,13 @@ async def create_invoice(
     )
     
     db.add(invoice)
-    merchant.quota_used += 1
+    
+    # FIX: Re-query merchant from current session to ensure it's tracked
+    merchant_in_session = db.query(Merchant).filter(Merchant.id == merchant.id).first()
+    merchant_in_session.quota_used += 1
+    
     db.commit()
+    db.refresh(merchant_in_session)
     
     return {
         "id": inv_id,
@@ -383,7 +388,7 @@ async def create_invoice(
         "status": "issued",
         "merchant_id": merchant.id,
         "totals": totals,
-        "quota_remaining": merchant.quota_limit - merchant.quota_used,
+        "quota_remaining": merchant_in_session.quota_limit - merchant_in_session.quota_used,
         "links": {
             "self": f"/v1/invoices/{inv_id}",
             "html": f"/v1/invoices/{inv_id}/html"
