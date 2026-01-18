@@ -1,14 +1,16 @@
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import text
-from datetime import date, datetime
+from sqlalchemy import text, func
+from datetime import date, datetime, timedelta
 import os
 
 from .auth import get_current_merchant
 from .models import CreateInvoice, Item, Charges
 from .database import get_db, engine, Base
-from .db_models import Merchant, Invoice, APIKey, hash_key, gen_id
+from .db_models import Merchant, Invoice, APIKey, UsageLog, hash_key, gen_id
+from .middleware import log_request_middleware
 
 # Create tables
 try:
@@ -18,8 +20,20 @@ except Exception as e:
 
 app = FastAPI(
     title="UMKM Invoice API - Multi-tenant",
-    version="3.0.0",
-    description="Multi-tenant invoice API with database persistence"
+    version="4.0.0",
+    description="Multi-tenant invoice API with usage tracking & analytics"
+)
+
+# Add middleware
+app.middleware("http")(log_request_middleware)
+
+# CORS configuration (untuk frontend nanti)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Production: ganti dengan domain spesifik
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 USE_DATABASE = os.getenv("USE_DATABASE", "false").lower() == "true"
