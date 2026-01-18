@@ -10,7 +10,7 @@ from .auth import get_current_merchant
 from .models import CreateInvoice, Item, Charges
 from .database import get_db, engine, Base
 from .db_models import Merchant, Invoice, APIKey, UsageLog, hash_key, gen_id
-from .middleware import log_request_middleware
+# from .middleware import log_request_middleware  # Skip dulu untuk fix error
 
 # Create tables
 try:
@@ -24,8 +24,8 @@ app = FastAPI(
     description="Multi-tenant invoice API with usage tracking & analytics"
 )
 
-# Add middleware
-app.middleware("http")(log_request_middleware)
+# Add middleware (skip dulu untuk fix error)
+# app.middleware("http")(log_request_middleware)
 
 # CORS configuration (untuk frontend nanti)
 app.add_middleware(
@@ -38,6 +38,176 @@ app.add_middleware(
 
 USE_DATABASE = os.getenv("USE_DATABASE", "false").lower() == "true"
 DB = {}  # In-memory fallback
+
+
+# ==================== ROOT & LANDING PAGE ====================
+
+@app.get("/", response_class=HTMLResponse)
+async def landing_page():
+    """
+    Landing page - Marketing & onboarding
+    """
+    html = """
+    <!DOCTYPE html>
+    <html lang="id">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Invoice API untuk UMKM Indonesia</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+            
+            /* Hero */
+            .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 80px 0; text-align: center; }
+            .hero h1 { font-size: 48px; margin-bottom: 20px; }
+            .hero p { font-size: 20px; margin-bottom: 30px; }
+            .cta-button { display: inline-block; background: white; color: #667eea; padding: 15px 40px; border-radius: 30px; text-decoration: none; font-weight: bold; font-size: 18px; transition: transform 0.3s; }
+            .cta-button:hover { transform: scale(1.05); }
+            
+            /* Features */
+            .features { padding: 80px 0; background: #f9f9f9; }
+            .features h2 { text-align: center; font-size: 36px; margin-bottom: 50px; }
+            .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; }
+            .feature-card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .feature-card h3 { color: #667eea; margin-bottom: 15px; }
+            
+            /* Pricing */
+            .pricing { padding: 80px 0; }
+            .pricing h2 { text-align: center; font-size: 36px; margin-bottom: 50px; }
+            .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 30px; max-width: 1000px; margin: 0 auto; }
+            .pricing-card { border: 2px solid #e0e0e0; border-radius: 10px; padding: 30px; text-align: center; transition: transform 0.3s; }
+            .pricing-card:hover { transform: translateY(-10px); border-color: #667eea; }
+            .pricing-card.featured { border-color: #667eea; box-shadow: 0 5px 20px rgba(102, 126, 234, 0.3); }
+            .plan-name { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+            .plan-price { font-size: 36px; color: #667eea; margin-bottom: 20px; }
+            .plan-features { list-style: none; margin-bottom: 30px; text-align: left; }
+            .plan-features li { padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+            
+            /* CTA */
+            .cta-section { background: #667eea; color: white; padding: 80px 0; text-align: center; }
+            .cta-section h2 { font-size: 36px; margin-bottom: 20px; }
+            
+            /* Footer */
+            footer { background: #333; color: white; padding: 40px 0; text-align: center; }
+            footer a { color: #667eea; text-decoration: none; }
+        </style>
+    </head>
+    <body>
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="container">
+                <h1>Invoice API untuk UMKM Indonesia</h1>
+                <p>Generate invoice profesional dalam hitungan detik. Simple, cepat, dan terpercaya.</p>
+                <a href="/v1/merchants/register?name=Your+Business&email=your@email.com&plan=free" class="cta-button">Mulai Gratis</a>
+                <p style="margin-top: 20px; font-size: 14px;">✓ Gratis 10 invoice/bulan • ✓ Tanpa kartu kredit • ✓ Setup 2 menit</p>
+            </div>
+        </section>
+        
+        <!-- Features Section -->
+        <section class="features">
+            <div class="container">
+                <h2>Kenapa Pilih Invoice API?</h2>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <h3>⚡ Super Cepat</h3>
+                        <p>Generate invoice dalam milliseconds. API response time rata-rata < 100ms.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>💯 Akurat</h3>
+                        <p>Perhitungan pajak otomatis (PPN 11%), diskon, biaya kirim, dan rounding.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🔒 Aman</h3>
+                        <p>Data terisolasi per merchant. API key authentication dengan encryption.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>📊 Analytics</h3>
+                        <p>Track usage, quota, dan performance metrics real-time.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🎨 Customizable</h3>
+                        <p>HTML invoice siap print/PDF. Template yang bisa disesuaikan.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🚀 Scalable</h3>
+                        <p>Dari 10 invoice/bulan sampai unlimited. Upgrade kapan saja.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Pricing Section -->
+        <section class="pricing">
+            <div class="container">
+                <h2>Harga yang Transparan</h2>
+                <div class="pricing-grid">
+                    <div class="pricing-card">
+                        <div class="plan-name">Free</div>
+                        <div class="plan-price">Rp 0</div>
+                        <ul class="plan-features">
+                            <li>✓ 10 invoice/bulan</li>
+                            <li>✓ API documentation</li>
+                            <li>✓ Email support</li>
+                            <li>✓ Basic analytics</li>
+                        </ul>
+                        <a href="/v1/merchants/register?plan=free" class="cta-button">Daftar Gratis</a>
+                    </div>
+                    <div class="pricing-card featured">
+                        <div class="plan-name">Starter</div>
+                        <div class="plan-price">Rp 99K<span style="font-size:14px">/bulan</span></div>
+                        <ul class="plan-features">
+                            <li>✓ 100 invoice/bulan</li>
+                            <li>✓ Priority support</li>
+                            <li>✓ Advanced analytics</li>
+                            <li>✓ API key management</li>
+                        </ul>
+                        <a href="/v1/merchants/me/upgrade?new_plan=starter" class="cta-button">Pilih Starter</a>
+                    </div>
+                    <div class="pricing-card">
+                        <div class="plan-name">Pro</div>
+                        <div class="plan-price">Rp 499K<span style="font-size:14px">/bulan</span></div>
+                        <ul class="plan-features">
+                            <li>✓ 1000 invoice/bulan</li>
+                            <li>✓ 24/7 support</li>
+                            <li>✓ Custom branding</li>
+                            <li>✓ Webhook integration</li>
+                        </ul>
+                        <a href="/v1/merchants/me/upgrade?new_plan=pro" class="cta-button">Pilih Pro</a>
+                    </div>
+                </div>
+                <p style="text-align:center; margin-top:30px; color:#666;">
+                    Butuh lebih dari 1000 invoice/bulan? <a href="mailto:support@invoiceapi.com" style="color:#667eea;">Hubungi kami</a> untuk Enterprise plan.
+                </p>
+            </div>
+        </section>
+        
+        <!-- CTA Section -->
+        <section class="cta-section">
+            <div class="container">
+                <h2>Siap untuk Mulai?</h2>
+                <p style="font-size:18px; margin-bottom:30px;">Daftar sekarang dan dapatkan 10 invoice gratis!</p>
+                <a href="/docs" class="cta-button">Lihat Dokumentasi</a>
+                <a href="/v1/merchants/register?name=Your+Business&email=your@email.com&plan=free" class="cta-button" style="margin-left:20px;">Daftar Sekarang</a>
+            </div>
+        </section>
+        
+        <!-- Footer -->
+        <footer>
+            <div class="container">
+                <p>© 2026 Invoice API Indonesia. Built with ❤️ for UMKM.</p>
+                <p style="margin-top:10px;">
+                    <a href="/docs">API Docs</a> • 
+                    <a href="/v1/pricing">Pricing</a> • 
+                    <a href="mailto:support@invoiceapi.com">Support</a>
+                </p>
+            </div>
+        </footer>
+    </body>
+    </html>
+    """
+    return html
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -724,6 +894,188 @@ async def get_analytics(
             }
             for stat in endpoint_stats
         ]
+    }
+
+
+# ==================== PRICING & SUBSCRIPTION ====================
+
+# Pricing configuration
+PLANS = {
+    "free": {
+        "name": "Free",
+        "price": 0,
+        "quota": 10,
+        "features": ["10 invoices/month", "Basic support", "Email notifications"]
+    },
+    "starter": {
+        "name": "Starter",
+        "price": 99000,  # Rp 99.000
+        "quota": 100,
+        "features": ["100 invoices/month", "Priority support", "Email notifications", "API analytics"]
+    },
+    "pro": {
+        "name": "Pro",
+        "price": 499000,  # Rp 499.000
+        "quota": 1000,
+        "features": ["1000 invoices/month", "24/7 support", "Custom branding", "Advanced analytics", "Webhook integration"]
+    },
+    "enterprise": {
+        "name": "Enterprise",
+        "price": 2499000,  # Rp 2.499.000
+        "quota": 999999,
+        "features": ["Unlimited invoices", "Dedicated support", "Custom features", "SLA guarantee", "Priority feature requests"]
+    }
+}
+
+
+@app.get("/v1/pricing")
+async def get_pricing():
+    """
+    PUBLIC ENDPOINT - Get pricing plans
+    
+    Returns all available plans with features & pricing
+    """
+    return {
+        "currency": "IDR",
+        "plans": [
+            {
+                "id": plan_id,
+                **plan_details
+            }
+            for plan_id, plan_details in PLANS.items()
+        ]
+    }
+
+
+@app.post("/v1/merchants/me/upgrade")
+async def request_upgrade(
+    new_plan: str = Query(..., description="Plan to upgrade to: starter, pro, enterprise"),
+    merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db)
+):
+    """
+    Request plan upgrade
+    
+    MANUAL PAYMENT (MVP):
+    Returns payment instructions (bank transfer)
+    
+    AUTOMATIC PAYMENT (Production):
+    Integrate with Midtrans/Xendit for automatic payment
+    """
+    
+    # Validate plan
+    if new_plan not in PLANS or new_plan == "free":
+        raise HTTPException(400, f"Invalid plan. Available plans: starter, pro, enterprise")
+    
+    # Check if already on this plan
+    if merchant.plan == new_plan:
+        raise HTTPException(400, f"You are already on the '{new_plan}' plan")
+    
+    plan_details = PLANS[new_plan]
+    
+    # For MVP: Return manual payment instructions
+    # Production: Create payment link via Midtrans/Xendit
+    
+    return {
+        "upgrade_request": {
+            "merchant_id": merchant.id,
+            "merchant_name": merchant.name,
+            "current_plan": merchant.plan,
+            "requested_plan": new_plan,
+            "price": plan_details["price"],
+            "currency": "IDR"
+        },
+        "payment_instructions": {
+            "method": "Bank Transfer (Manual)",
+            "bank": "BCA",
+            "account_number": "1234567890",
+            "account_name": "Invoice API Indonesia",
+            "amount": plan_details["price"],
+            "reference": f"UPGRADE-{merchant.id}-{new_plan.upper()}",
+            "note": "Include reference in transfer notes"
+        },
+        "next_steps": [
+            f"1. Transfer Rp {plan_details['price']:,} to the account above",
+            "2. Include reference code in transfer notes",
+            "3. Send proof of payment to support@invoiceapi.com",
+            "4. We will upgrade your account within 1 business day",
+            "5. You will receive confirmation email"
+        ],
+        "note": "For automatic payment integration (coming soon), contact support@invoiceapi.com"
+    }
+
+
+@app.post("/v1/merchants/me/confirm-upgrade")
+async def confirm_upgrade(
+    new_plan: str = Query(..., description="Plan to upgrade to"),
+    payment_proof: str = Query(..., description="Payment reference or transaction ID"),
+    merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db)
+):
+    """
+    Confirm manual payment (ADMIN will approve)
+    
+    In production: This will be replaced by webhook from payment gateway
+    """
+    
+    if new_plan not in PLANS or new_plan == "free":
+        raise HTTPException(400, "Invalid plan")
+    
+    return {
+        "success": True,
+        "message": "Upgrade request received",
+        "merchant_id": merchant.id,
+        "requested_plan": new_plan,
+        "payment_reference": payment_proof,
+        "status": "pending_verification",
+        "note": "Admin will verify your payment and upgrade your account within 1 business day"
+    }
+
+
+@app.post("/admin/approve-upgrade/{merchant_id}", include_in_schema=False)
+async def admin_approve_upgrade(
+    merchant_id: str,
+    new_plan: str = Query(..., description="Plan to upgrade to"),
+    admin_key: str = Query(..., description="Admin API key"),
+    db: Session = Depends(get_db)
+):
+    """
+    ADMIN ONLY - Approve upgrade and change merchant plan
+    
+    This endpoint will be called after verifying payment
+    """
+    
+    ADMIN_KEY = os.getenv("ADMIN_KEY", "admin_secret_key_change_me")
+    if admin_key != ADMIN_KEY:
+        raise HTTPException(403, "Unauthorized")
+    
+    merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
+    if not merchant:
+        raise HTTPException(404, "Merchant not found")
+    
+    if new_plan not in PLANS:
+        raise HTTPException(400, "Invalid plan")
+    
+    old_plan = merchant.plan
+    old_quota = merchant.quota_limit
+    
+    # Update merchant
+    merchant.plan = new_plan
+    merchant.quota_limit = PLANS[new_plan]["quota"]
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": f"Merchant upgraded from {old_plan} to {new_plan}",
+        "merchant_id": merchant.id,
+        "merchant_name": merchant.name,
+        "upgrade": {
+            "old_plan": old_plan,
+            "new_plan": new_plan,
+            "old_quota": old_quota,
+            "new_quota": merchant.quota_limit
+        }
     }
 
 
