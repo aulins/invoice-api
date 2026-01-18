@@ -343,6 +343,7 @@ async def revoke_api_key(
 
 @app.post("/v1/invoices")
 async def create_invoice(
+    request: Request,
     payload: CreateInvoice,
     merchant: Merchant = Depends(get_current_merchant),
     db: Session = Depends(get_db)
@@ -354,6 +355,9 @@ async def create_invoice(
     
     Requires: X-API-Key header
     """
+    
+    # Set merchant_id in request state (for middleware logging)
+    request.state.merchant_id = merchant.id
     
     # Check quota
     if merchant.quota_used >= merchant.quota_limit:
@@ -603,6 +607,196 @@ async def invoice_html(
 </html>"""
     
     return HTMLResponse(content=html, media_type="text/html")
+
+
+# ==================== USAGE & ANALYTICS ====================
+
+@app.get("/v1/merchants/me/usage")
+async def get_usage_stats(
+    merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current usage statistics
+    
+    Returns:
+    - Quota info (used, limit, remaining)
+    - Usage percentage
+    - Days until quota reset
+    """
+    
+    # Calculate quota percentage
+    percentage = round((merchant.quota_used / merchant.quota_limit) * 100, 1) if merchant.quota_limit > 0 else 0
+    
+    # Calculate days until reset (assume reset on 1st of month)
+    today = datetime.utcnow()
+    if today.month == 12:
+        next_reset = datetime(today.year + 1, 1, 1)
+    else:
+        next_reset = datetime(today.year, today.month + 1, 1)
+    days_until_reset = (next_reset - today).days
+    
+    return {
+        "merchant_id": merchant.id,
+        "merchant_name": merchant.name,
+        "plan": merchant.plan,
+        "quota": {
+            "limit": merchant.quota_limit,
+            "used": merchant.quota_used,
+            "remaining": merchant.quota_limit - merchant.quota_used,
+            "percentage": percentage
+        },
+        "status": {
+            "ok": merchant.quota_used < merchant.quota_limit,
+            "warning": percentage >= 80,
+            "exceeded": merchant.quota_used >= merchant.quota_limit
+        },
+        "reset": {
+            "days_remaining": days_until_reset,
+            "next_reset_date": next_reset.date().isoformat()
+        }
+    }
+
+
+@app.get("/v1/merchants/me/analytics")
+async def get_analytics(
+    merchant: Merchant = Depends(get_current_merchant),
+    db: Session = Depends(get_db),
+    days: int = Query(30, description="Number of days to analyze")
+):
+    """
+    Get usage analytics
+    
+    Returns:
+    - Total API calls
+    - Calls by endpoint
+    - Average response time
+    - Peak usage times
+    """
+    
+    # Date range
+    start_date = datetime.utcnow() - timedelta(days=days)
+    
+    # Total API calls
+    total_calls = db.query(func.count(UsageLog.id)).filter(
+        UsageLog.merchant_id == merchant.id,
+        UsageLog.created_at >= start_date
+    ).scalar() or 0
+    
+    # Calls by endpoint
+    endpoint_stats = db.query(
+        UsageLog.endpoint,
+        func.count(UsageLog.id).label("count")
+    ).filter(
+        UsageLog.merchant_id == merchant.id,
+        UsageLog.created_at >= start_date
+    ).group_by(UsageLog.endpoint).all()
+    
+    # Average response time
+    avg_response_time = db.query(
+        func.avg(UsageLog.response_time_ms)
+    ).filter(
+        UsageLog.merchant_id == merchant.id,
+        UsageLog.created_at >= start_date
+    ).scalar() or 0
+    
+    # Total invoices created
+    total_invoices = db.query(func.count(Invoice.id)).filter(
+        Invoice.merchant_id == merchant.id,
+        Invoice.created_at >= start_date
+    ).scalar() or 0
+    
+    return {
+        "period": {
+            "days": days,
+            "start_date": start_date.date().isoformat(),
+            "end_date": datetime.utcnow().date().isoformat()
+        },
+        "summary": {
+            "total_api_calls": total_calls,
+            "total_invoices_created": total_invoices,
+            "average_response_time_ms": round(avg_response_time, 2)
+        },
+        "by_endpoint": [
+            {
+                "endpoint": stat.endpoint,
+                "calls": stat.count
+            }
+            for stat in endpoint_stats
+        ]
+    }
+
+
+# ==================== ADMIN ENDPOINTS ====================
+
+@app.post("/admin/reset-quota/{merchant_id}", include_in_schema=False)
+async def admin_reset_quota(
+    merchant_id: str,
+    admin_key: str = Query(..., description="Admin API key"),
+    db: Session = Depends(get_db)
+):
+    """
+    ADMIN ONLY - Reset merchant quota
+    
+    Use case: Monthly quota reset or manual adjustment
+    """
+    
+    # Simple admin auth (production: use proper admin authentication)
+    ADMIN_KEY = os.getenv("ADMIN_KEY", "admin_secret_key_change_me")
+    if admin_key != ADMIN_KEY:
+        raise HTTPException(403, "Unauthorized")
+    
+    merchant = db.query(Merchant).filter(Merchant.id == merchant_id).first()
+    if not merchant:
+        raise HTTPException(404, "Merchant not found")
+    
+    old_used = merchant.quota_used
+    merchant.quota_used = 0
+    db.commit()
+    
+    return {
+        "success": True,
+        "merchant_id": merchant.id,
+        "merchant_name": merchant.name,
+        "quota_reset": {
+            "old_used": old_used,
+            "new_used": 0,
+            "limit": merchant.quota_limit
+        }
+    }
+
+
+@app.post("/admin/reset-all-quotas", include_in_schema=False)
+async def admin_reset_all_quotas(
+    admin_key: str = Query(..., description="Admin API key"),
+    db: Session = Depends(get_db)
+):
+    """
+    ADMIN ONLY - Reset ALL merchants quota
+    
+    Use case: Monthly reset (run via cron job on 1st of month)
+    """
+    
+    ADMIN_KEY = os.getenv("ADMIN_KEY", "admin_secret_key_change_me")
+    if admin_key != ADMIN_KEY:
+        raise HTTPException(403, "Unauthorized")
+    
+    merchants = db.query(Merchant).filter(Merchant.is_active == True).all()
+    
+    reset_count = 0
+    for merchant in merchants:
+        if merchant.quota_used > 0:
+            merchant.quota_used = 0
+            reset_count += 1
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": f"Reset quota for {reset_count} merchants",
+        "total_merchants": len(merchants),
+        "reset_date": datetime.utcnow().date().isoformat()
+    }
 
 
 # ==================== ADMIN SETUP (Development Only) ====================
