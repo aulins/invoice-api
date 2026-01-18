@@ -75,6 +75,25 @@ class Invoice(Base):
     
     merchant = relationship("Merchant", back_populates="invoices")
 
+class UsageLog(Base):
+    """Track API usage for billing and analytics"""
+    __tablename__ = "usage_logs"
+
+    id = Column(String, primary_key=True, default=lambda: gen_id("log"))
+    merchant_id = Column(String, ForeignKey("merchants.id"), nullable=False)
+    
+    # Request info
+    endpoint = Column(String(255), nullable=False)
+    method = Column(String(10), nullable=False)
+    status_code = Column(Integer, nullable=False)
+    
+    # Timing
+    response_time_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Metadata
+    user_agent = Column(String(500), nullable=True)
+    ip_address = Column(String(50), nullable=True)
 
 def hash_key(key: str) -> str:
     """Hash API key untuk storage"""
